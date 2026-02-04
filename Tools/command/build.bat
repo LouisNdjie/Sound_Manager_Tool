@@ -37,12 +37,23 @@ set "OBJECT_DIR=.\build\object"
 set "BINARY_DIR=.\build\binary"
 set "UTILS_DIR=.\src\Utils"
 
+::dossiers ImGui (NOUVEAU)
+set "IMGUI_DIR=.\assets\imgui"
+set "IMGUI_BACKENDS_DIR=%IMGUI_DIR%\backends"
+
 ::nom de l'éxécutable
 set "OUTPUT_FILE=SoundManagerTool.exe"
 
 ::vérifie si le dossier de source existe
 if not exist "%SOURCE_DIR%" (
     echo !ESC![1;4;31m ERROR: !ESC![0m Le dossier %SOURCE_DIR% est inexistant.
+    exit /b 1
+)
+
+::vérifier si ImGui existe (NOUVEAU)
+if not exist "%IMGUI_DIR%" (
+    echo !ESC![1;4;31m ERROR: !ESC![0m Le dossier %IMGUI_DIR% est inexistant.
+    echo Placez les fichiers ImGui dans le dossier imgui/
     exit /b 1
 )
 
@@ -59,6 +70,10 @@ if !CPP_FILE_COUNT! equ 0 (
     echo !ESC![1;4;31m ERROR: !ESC![0m Aucun fichier .cpp trouvé dans %SOURCE_DIR% ou dans les sous-dossiers.
     exit /b 1
 )
+
+echo !ESC![1;36m ========================================!ESC![0m
+echo !ESC![1;36m   Compilation des fichiers du projet   !ESC![0m
+echo !ESC![1;36m ========================================!ESC![0m
 
 ::compiler les.cpp qui ont été modifiés uniquement
 set "OBJECT_FILES="
@@ -86,7 +101,7 @@ for /r "%SOURCE_DIR%" %%f in (*.cpp) do (
 
     if "!compile!"=="yes" (
         echo ✓ !ESC![1;32m Compile : !ESC![0m !base!.cpp
-        "%COMPILATEUR%" -c "!CPP_FULL!" -I "%SOURCE_DIR%" -I "%INCLUDE%" !FLAGS! -o "!o!"
+        "%COMPILATEUR%" -c "!CPP_FULL!" -I "%SOURCE_DIR%" -I "%INCLUDE%" -I "%IMGUI_DIR%" -I "%IMGUI_BACKENDS_DIR%" !FLAGS! -o "!o!"
         if errorlevel 1 (
             echo ✗ !ESC![1;4;31m Error compile : !ESC![0m !base!.cpp
             exit /b 1
@@ -97,15 +112,90 @@ for /r "%SOURCE_DIR%" %%f in (*.cpp) do (
     set "OBJECT_FILES=!OBJECT_FILES! "!o!""
 )
 
+echo.
+echo !ESC![1;36m ========================================!ESC![0m
+echo !ESC![1;36m   Compilation des fichiers ImGui       !ESC![0m
+echo !ESC![1;36m ========================================!ESC![0m
+
+:: Liste des fichiers ImGui core à compiler (NOUVEAU)
+set "IMGUI_SOURCES=imgui.cpp imgui_demo.cpp imgui_draw.cpp imgui_tables.cpp imgui_widgets.cpp"
+:: Compiler les fichiers ImGui core
+for %%i in (%IMGUI_SOURCES%) do (
+    set "CPP_FULL=%IMGUI_DIR%\%%i"
+    set "base=%%~ni"
+    set "o=%OBJECT_DIR%\!base!.o"
+    set "compile=no"
+
+    call :FileModTime "!CPP_FULL!" cpp_date
+    call :FileModTime "!o!" o_date
+
+    if "!o_date!"=="" (
+        set "compile=yes"
+    ) else (
+        if "!cpp_date!" GTR "!o_date!" (
+            set "compile=yes"
+        )
+    )
+
+    if "!compile!"=="yes" (
+        echo ✓ !ESC![1;32m Compile ImGui: !ESC![0m %%i
+        "%COMPILATEUR%" -c "!CPP_FULL!" -I "%IMGUI_DIR%" -I "%INCLUDE%" !FLAGS! -o "!o!"
+        if errorlevel 1 (
+            echo ✗ !ESC![1;4;31m Error compile ImGui: !ESC![0m %%i
+            exit /b 1
+        )
+    ) else (
+        echo !ESC![1;34m Ignore ImGui: !ESC![0m %%i
+    )
+    set "OBJECT_FILES=!OBJECT_FILES! "!o!""
+)
+
+:: Compiler les backends ImGui (NOUVEAU)
+set "IMGUI_BACKEND_SOURCES=imgui_impl_sdl3.cpp imgui_impl_sdlrenderer3.cpp"
+for %%i in (%IMGUI_BACKEND_SOURCES%) do (
+    set "CPP_FULL=%IMGUI_BACKENDS_DIR%\%%i"
+    set "base=%%~ni"
+    set "o=%OBJECT_DIR%\!base!.o"
+    set "compile=no"
+
+    call :FileModTime "!CPP_FULL!" cpp_date
+    call :FileModTime "!o!" o_date
+
+    if "!o_date!"=="" (
+        set "compile=yes"
+    ) else (
+        if "!cpp_date!" GTR "!o_date!" (
+            set "compile=yes"
+        )
+    )
+
+    if "!compile!"=="yes" (
+        echo ✓ !ESC![1;32m Compile Backend: !ESC![0m %%i
+        "%COMPILATEUR%" -c "!CPP_FULL!" -I "%IMGUI_DIR%" -I "%IMGUI_BACKENDS_DIR%" -I "%INCLUDE%" !FLAGS! -o "!o!"
+        if errorlevel 1 (
+            echo ✗ !ESC![1;4;31m Error compile Backend: !ESC![0m %%i
+            exit /b 1
+        )
+    ) else (
+        echo !ESC![1;34m Ignore Backend: !ESC![0m %%i
+    )
+    set "OBJECT_FILES=!OBJECT_FILES! "!o!""
+)
+
 ::vérifier si les fichiers objets sont bien présents
 if "!OBJECT_FILES!"=="" (
     echo ✗ !ESC![1;4;31m Error : !ESC![0m pas de fichier objets.
     exit /b 1
 )
 
+echo.
+echo !ESC![1;36m ========================================!ESC![0m
+echo !ESC![1;36m           Linkage final                !ESC![0m
+echo !ESC![1;36m ========================================!ESC![0m
+
 ::linker les fichiers objets avec l'exécutable
 echo !ESC![1;34m Linking ... !ESC![0m
-"%COMPILATEUR%" !OBJECT_FILES! -L "%LIB%" -lSDL3 -luser32 -lgdi32 -lwinmm -limm32 -lole32 -loleaut32 -lversion -luuid -ladvapi32 -lshell32 !FLAGS! -o "%BINARY_DIR%\%OUTPUT_FILE%"
+"%COMPILATEUR%" !OBJECT_FILES! -L "%LIB%" -lSDL3 -luser32 -lgdi32 -lwinmm -limm32 -lole32 -loleaut32 -lversion -luuid -ladvapi32 -lopengl32 -lshell32 -lportaudio !FLAGS! -o "%BINARY_DIR%\%OUTPUT_FILE%"
 if errorlevel 1 (
     echo  ✗ !ESC![1;4;31m Error : !ESC![0m échec de linkage
     exit /b 1
@@ -119,10 +209,12 @@ if exist "%UTILS_DIR%" (
         exit /b 1
     )
 ) else (
-    echo ✗ !ESC![1;4;31m Warning: : !ESC![0m le dossier %UTILS_DIR% n'existe pas, aucune ressource copiée.
+    echo !ESC![1;4;33m Warning: !ESC![0m le dossier %UTILS_DIR% n'existe pas, aucune ressource copiée.
 )
 
-echo !ESC![1;4;34m Build completed: !ESC![0m %BINARY_DIR%\%OUT%
+echo.
+echo !ESC![1;4;32m ✓ Build completed: !ESC![0m %BINARY_DIR%\%OUTPUT_FILE%
+echo.
 
 goto :EOF
 
@@ -136,6 +228,15 @@ call :FileModTime "%~2" obj_date
 
 :: Verifier tous les fichiers .h dans Sources
 for /r "%SOURCE_DIR%" %%h in (*.h) do (
+    call :FileModTime "%%h" header_date
+    if "!header_date!" GTR "!obj_date!" (
+        set "needs_recompile=yes"
+        goto :HeaderCheckDone
+    )
+)
+
+:: Vérifier les headers ImGui aussi (NOUVEAU)
+for %%h in ("%IMGUI_DIR%\*.h") do (
     call :FileModTime "%%h" header_date
     if "!header_date!" GTR "!obj_date!" (
         set "needs_recompile=yes"
